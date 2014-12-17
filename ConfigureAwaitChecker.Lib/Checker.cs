@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Text;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
@@ -18,8 +19,36 @@ namespace ConfigureAwaitChecker.Lib
 
 		public Checker(string file)
 		{
-			_tree = CSharpSyntaxTree.ParseFile(file,
+			var text = System.IO.File.ReadAllText (file);
+			
+			//text = string.Join ("\n", text.Split ('\n').Select (x => Checker.ReplaceTabs (x)).ToArray ());
+
+			_tree = CSharpSyntaxTree.ParseText(text, file,
 				options: ParseOptions);
+		}
+
+		private static string ReplaceTabs(string text)
+		{
+			var buffer = new System.Text.StringBuilder ();
+			var column = 0;
+
+			foreach (var c in text)
+			{
+				if (c == '\t')
+				{
+					do
+					{
+						buffer.Append (' ');
+					}
+					while ((++column % 4) != 0);
+				}
+				else
+				{
+					buffer.Append (c);
+				}
+			}
+
+			return buffer.ToString ();
 		}
 
 		public IEnumerable<CheckerResult> Check()
@@ -55,7 +84,8 @@ namespace ConfigureAwaitChecker.Lib
 
 		static bool IsProperConfigureAwait(InvocationExpressionSyntax invocationExpression)
 		{
-			return IsConfigureAwait(invocationExpression.Expression) && HasFalseArgument(invocationExpression.ArgumentList);
+			return (IsConfigureAwait(invocationExpression.Expression) && HasFalseArgument(invocationExpression.ArgumentList))
+				|| (IsIgnoreContext(invocationExpression.Expression) && HasNoArgument(invocationExpression.ArgumentList));
 		}
 
 		static bool IsConfigureAwait(ExpressionSyntax expression)
@@ -68,6 +98,18 @@ namespace ConfigureAwaitChecker.Lib
 			return true;
 		}
 
+		static bool IsIgnoreContext(ExpressionSyntax expression)
+		{
+			var memberAccess = expression as MemberAccessExpressionSyntax;
+
+			if (memberAccess == null)
+			{
+				return false;
+			}
+
+			return memberAccess.Name.Identifier.Text == "IgnoreContext";
+		}
+
 		static bool HasFalseArgument(ArgumentListSyntax argumentList)
 		{
 			if (argumentList.Arguments.Count != 1)
@@ -75,6 +117,11 @@ namespace ConfigureAwaitChecker.Lib
 			if (argumentList.Arguments[0].Expression.CSharpKind() != SyntaxKind.FalseLiteralExpression)
 				return false;
 			return true;
+		}
+
+		static bool HasNoArgument(ArgumentListSyntax argumentList)
+		{
+			return argumentList.Arguments.Count == 0;
 		}
 
 		static string DebugListNodes(IEnumerable<SyntaxNode> nodes, string indent = "")
